@@ -1,0 +1,49 @@
+# version: "3.9"
+
+services:
+  histo_lab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: histo_lab
+
+    working_dir: /workspace   # 👈 Répertoire de travail forcé
+    ports:
+      - "8888:8888"   # JupyterLab
+      - "6006:6006"   # TensorBoard
+      - "8501:8501"   # Streamlit
+    volumes:
+      - .:/workspace              # Code local
+      - ./data:/workspace/data    # Dataset
+      - ./configs:/workspace/configs
+      - ./runs:/workspace/runs    # Logs TensorBoard
+
+    # 🔒 Import des variables d'environnement depuis .env
+    env_file:
+      - .env
+
+    environment:
+      - TZ=Europe/Paris
+      - JUPYTER_ENABLE_LAB=yes
+      - CONFIG_DIR=/workspace/configs
+      - TENSORBOARD_LOGDIR=/workspace/runs
+
+    command: >
+      bash -c "
+        echo '🚀 Lancement de JupyterLab, TensorBoard et Streamlit...';
+        jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root &
+        tensorboard --logdir=/workspace/runs --host=0.0.0.0 --port=6006 &
+        streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true
+      "
+
+    shm_size: "4gb"  # utile pour les notebooks lourds
+    restart: unless-stopped
+
+    # ✅ GPU activé pour Docker Compose v2+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

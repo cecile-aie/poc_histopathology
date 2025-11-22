@@ -1,0 +1,24 @@
+{
+  "patch_embed_weight_shape": [
+    768,
+    3,
+    16,
+    16
+  ],
+  "in_ch": 3,
+  "kernel_hw": [
+    16,
+    16
+  ],
+  "pos_embed_shape": [
+    1,
+    198,
+    768
+  ],
+  "has_fc_norm": true,
+  "has_cls_token": true,
+  "num_params_in_state_dict": 85800192,
+  "expected_backbone": "ViT-B/16",
+  "expected_input": "H&E patch 256x256, no ImageNet normalization",
+  "note_normalization": "Utiliser des images en [0,1] (pas de mean/std ImageNet)."
+}

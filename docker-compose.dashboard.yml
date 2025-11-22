@@ -1,0 +1,44 @@
+# version: "3.9"
+
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: p9-dashboard
+
+    ports:
+      - "8501:8501"
+
+    volumes:
+      - .:/workspace
+      - ./outputs:/workspace/outputs
+      - ./models:/workspace/models
+      - ./data:/workspace/data
+
+    # 🔒 Local : charge HF_TOKEN (et autres) depuis .env
+    # (en prod tu n'as pas besoin de ce fichier, ce n'est pas bloquant)
+    env_file:
+      - .env
+
+    environment:
+      # GPU
+      - CUDA_VISIBLE_DEVICES=0
+
+      # Streamlit
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_PORT=8501
+
+      # 🔑 HF_TOKEN sera pris soit :
+      # - depuis .env en local
+      # - depuis les variables d'env (GitHub Actions / EC2) en prod
+      - HF_TOKEN=${HF_TOKEN}
+
+      # Région AWS (peut aussi venir de .env ou des secrets CI/CD)
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
+
+      # Optionnel : bucket S3 si tu en as un
+      # - S3_BUCKET=${S3_BUCKET}
+
+    # GPU sur hôte (nvidia-container-toolkit requis)
+    gpus: all

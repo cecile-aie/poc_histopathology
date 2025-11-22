@@ -1,0 +1,40 @@
+# Core numérique
+numpy
+pandas
+tqdm
+
+# Deep learning (GPU)
+torch
+torchvision
+torchaudio
+timm
+
+# ML classique / métriques
+scikit-learn
+
+# Visualisation
+matplotlib
+seaborn
+
+# Images
+Pillow
+opencv-python-headless
+scipy
+
+# FID / LPIPS
+torch-fidelity
+lpips
+
+# Stack diffusion / PixCell / UNI2-h
+diffusers
+transformers
+accelerate
+safetensors
+einops
+
+# Histo
+torch-staintools
+
+# App / cloud
+streamlit
+boto3

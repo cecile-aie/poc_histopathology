@@ -1,0 +1,30 @@
+# version: "3.9"
+
+services:
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: p9-dashboard-cpu
+
+    ports:
+      - "8501:8501"
+
+    volumes:
+      - .:/workspace
+      - ./outputs:/workspace/outputs
+      - ./models:/workspace/models
+      - ./data:/workspace/data
+
+    # Charger les variables depuis .env
+    env_file:
+      - .env
+
+    environment:
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_PORT=8501
+      - HF_TOKEN=${HF_TOKEN}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
+      # - S3_BUCKET=${S3_BUCKET}
+
+    # ⚠️ Pas de GPU demandé ici (instance CPU)

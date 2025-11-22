@@ -1,0 +1,85 @@
+############################
+# Base : tout ignorer par défaut
+############################
+
+# Ignore tout ce qui est directement à la racine
+*
+
+############################
+# Fichiers qu'on garde à la racine
+############################
+
+!.gitignore
+!README*
+!LICENSE*
+
+# Fichiers "classiques" de projet à la racine
+!*.py
+!*.ipynb
+!*.md
+!*.txt
+!*.yaml
+!*.yml
+!*.json
+!*.toml
+!Makefile
+!Dockerfile
+!docker-compose.yml
+!requirements*.txt
+!setup.py
+!pyproject.toml
+
+############################
+# Dossiers qu'on garde
+############################
+
+# Dossiers gardés avec toute leur arborescence
+!scripts/
+!p9dg/
+!metrics/
+!docs/
+!configs/
+
+# Dossier notebooks : on garde seulement les fichiers à la racine du dossier,
+# mais PAS ses sous-dossiers
+!notebooks/
+notebooks/*/
+
+############################
+# Fichiers sensibles / env
+############################
+
+.env
+.env.*
+*.env
+
+############################
+# Python / Jupyter / caches
+############################
+
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.ipynb_checkpoints/
+
+############################
+# Environnements virtuels
+############################
+
+.venv/
+venv/
+env/
+.python-version
+
+############################
+# OS / IDE
+############################
+
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+*.iml
