@@ -24,6 +24,7 @@
 !*.toml
 !Makefile
 !Dockerfile
+!Dockerfile.dashboard.cpu
 !docker-compose.yml
 !requirements*.txt
 !setup.py
