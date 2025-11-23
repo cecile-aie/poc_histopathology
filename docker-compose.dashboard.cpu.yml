@@ -4,7 +4,7 @@ services:
   dashboard:
     build:
       context: .
-      dockerfile: Dockerfile.dashboard
+      dockerfile: Dockerfile.dashboard.cpu
     container_name: p9-dashboard-cpu
 
     ports:
