@@ -283,9 +283,11 @@ def load_pixcell_cached():
 
 @st.cache_resource
 def load_mobilenet_cached():
-    """Charge le modèle MobileNetV2 avec cache Streamlit"""
+    """Charge le modèle MobileNetV2 avec cache Streamlit (download S3 si besoin)."""
     try:
-        return load_mobilenet_cnn(MODELS_DIR / "mobilenetv2_best.pt", DEVICE)
+        # Télécharge depuis s3://S3_BUCKET/models/mobilenetv2_best.pt si absent en local
+        model_path = download_model_from_s3_if_needed("mobilenetv2_best.pt")
+        return load_mobilenet_cnn(model_path, DEVICE)
     except Exception as e:
         st.error(f"Erreur chargement MobileNetV2: {e}")
         return None
