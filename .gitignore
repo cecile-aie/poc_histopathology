@@ -24,8 +24,9 @@
 !*.toml
 !Makefile
 !Dockerfile
-!Dockerfile.dashboard.cpu
+!Dockerfile.dashboard.ec2
 !docker-compose.yml
+!docker-compose.dashboard_ec2.yml
 !requirements*.txt
 !setup.py
 !pyproject.toml
