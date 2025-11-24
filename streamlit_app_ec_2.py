@@ -15,6 +15,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
 
+# === S3: imports supplémentaires ===
+import boto3
+import s3fs
+import io
+
 # Configuration de la page
 st.set_page_config(
     page_title="GAN vs Diffusion - Histopathology",
@@ -54,6 +59,51 @@ from dashboard_backend import (
     DATA_ROOT,
 )
 from p9dg.utils.class_mappings import class_labels, class_colors
+
+# === S3: configuration minimale pour le test ===
+BUCKET = os.getenv("S3_BUCKET", "p9-histo-data")
+DATASET_PREFIX = os.getenv("DATASET_PREFIX", "CRC-VAL-HE-7K")
+
+
+@st.cache_resource
+def get_s3_clients():
+    """
+    Initialise les clients S3 (boto3 + s3fs).
+    Utilise les credentials IAM de l'instance EC2 ou les variables d'environnement.
+    """
+    s3_client = boto3.client("s3")
+    fs = s3fs.S3FileSystem(anon=False)
+    return s3_client, fs
+
+
+def list_s3_images_for_class(class_name: str, max_images: int = 12) -> List[str]:
+    """
+    Liste quelques images pour une classe donnée dans le bucket S3.
+    Retourne une liste de clés S3 (paths dans le bucket).
+    """
+    s3_client, _ = get_s3_clients()
+    prefix = f"{DATASET_PREFIX}/{class_name}/"
+
+    keys: List[str] = []
+    resp = s3_client.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+
+    for obj in resp.get("Contents", []):
+        key = obj["Key"]
+        if key.lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
+            keys.append(key)
+
+    return keys[:max_images]
+
+
+def load_image_from_s3(key: str) -> Image.Image:
+    """
+    Charge une image depuis S3 en mémoire et la retourne comme PIL.Image.
+    """
+    s3_client, _ = get_s3_clients()
+    obj = s3_client.get_object(Bucket=BUCKET, Key=key)
+    data = obj["Body"].read()
+    return Image.open(io.BytesIO(data)).convert("RGB")
+
 
 # ==========================
 # Configuration WCAG
@@ -332,6 +382,44 @@ with col1:
 # ==========================
 with col2:
     st.markdown("## Gallery (real vs synth)")
+
+    # === S3: petit labo de test pour affichage direct depuis S3 ===
+    with st.expander("🧪 S3 real images preview (EC2 experiment)", expanded=False):
+        try:
+            # Sélection de classe pour S3
+            s3_class = st.selectbox(
+                "Class (from S3):",
+                options=sorted(class_labels.keys()),
+                index=sorted(class_labels.keys()).index("TUM") if "TUM" in class_labels else 0,
+                key="s3_class"
+            )
+            n_s3_images = st.slider(
+                "Number of images to preview from S3:",
+                min_value=1,
+                max_value=12,
+                value=4,
+                key="s3_n_images"
+            )
+            if st.button("Load images from S3", key="s3_load_button"):
+                with st.spinner(f"Loading {n_s3_images} images from S3 ({BUCKET}/{DATASET_PREFIX}/{s3_class})..."):
+                    keys = list_s3_images_for_class(s3_class, max_images=n_s3_images * 2)
+                    if not keys:
+                        st.warning(f"No images found in S3 under {DATASET_PREFIX}/{s3_class}/")
+                    else:
+                        cols_s3 = st.columns(min(4, n_s3_images))
+                        for i, key in enumerate(keys[:n_s3_images]):
+                            try:
+                                img = load_image_from_s3(key)
+                                cols_s3[i % len(cols_s3)].image(
+                                    img,
+                                    caption=f"{s3_class} | {Path(key).name}",
+                                )
+                            except Exception as e:
+                                cols_s3[i % len(cols_s3)].error(f"Error loading {key}: {e}")
+        except Exception as e:
+            st.error(f"S3 connectivity error: {e}")
+
+    # === Fin bloc S3, le reste de la galerie reste inchangé ===
     
     # Sélection de classe (galerie) – radio horizontal pour rappeler les "chips" rouges de la colonne 1
     if len(selected_classes) > 0:
@@ -757,10 +845,10 @@ with col3:
                 enriched_prev = set(results.get("enriched_classes", []))
                 if enriched_prev:
                     for tick_label, cls in zip(ax_prev.get_xticklabels(), classes_for_ticks_prev):
-                        if cls in enriched_prev:
+                        if cls in enriched:
                             tick_label.set_color(COLORS["secondary"])
                     for tick_label, cls in zip(ax_prev.get_yticklabels(), classes_for_ticks_prev):
-                        if cls in enriched_prev:
+                        if cls in enriched:
                             tick_label.set_color(COLORS["secondary"])
             ax_prev.set_xlabel("Predicted")
             ax_prev.set_ylabel("Actual")
@@ -777,4 +865,3 @@ st.caption(
     "Use Tab to navigate, Enter/Space to activate buttons. "
     f"Device: {DEVICE.type.upper()}"
 )
-
