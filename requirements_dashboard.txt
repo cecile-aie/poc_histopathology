@@ -4,12 +4,9 @@ pandas
 tqdm
 
 # Deep learning (CPU - pour EC2)
-# Note: Pour GPU, remplacer par les versions CUDA standard
-# Installation via pip avec index URL (à installer séparément ou via Dockerfile)
-# torch==2.3.0+cpu --index-url https://download.pytorch.org/whl/cpu
-# torchvision==0.18.0+cpu --index-url https://download.pytorch.org/whl/cpu
-# torchaudio==2.3.0+cpu --index-url https://download.pytorch.org/whl/cpu
-# Pour l'instant, on utilise l'image pytorch/pytorch:2.3.0-cpu qui inclut déjà torch
+# Note: PyTorch CPU est installé dans le Dockerfile via l'index URL spécial
+# torch, torchvision, torchaudio sont installés dans Dockerfile.dashboard.cpu
+# Pour GPU, utiliser une image avec CUDA et installer les versions CUDA standard
 timm
 
 # ML classique / métriques
