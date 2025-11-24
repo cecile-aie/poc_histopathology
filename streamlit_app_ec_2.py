@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional
+import random
 
 import streamlit as st
 import pandas as pd
@@ -14,6 +15,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from PIL import Image
+
+# Seed global pour la reproductibilité (sampling depuis S3, etc.)
+SEED = int(os.getenv("GLOBAL_SEED", "42"))
+
 
 # === S3: imports supplémentaires ===
 import boto3
@@ -60,9 +65,18 @@ from dashboard_backend import (
 )
 from p9dg.utils.class_mappings import class_labels, class_colors
 
-# === S3: configuration minimale pour le test ===
-BUCKET = os.getenv("S3_BUCKET", "p9-histo-data")
-DATASET_PREFIX = os.getenv("DATASET_PREFIX", "CRC-VAL-HE-7K")
+# === S3: configuration pour data + modèles ===
+S3_BUCKET = os.getenv("S3_BUCKET", "p9-histo-data")
+
+# Layout attendu dans le bucket :
+#  - s3://S3_BUCKET/models/...
+#  - s3://S3_BUCKET/CRC-VAL-HE-7K/CLASS/...
+S3_MODELS_PREFIX = os.getenv("S3_MODELS_PREFIX", "models")
+CRC_SUBDIR = os.getenv("CRC_SUBDIR", "CRC-VAL-HE-7K")
+
+# Utilisé pour la prévisualisation S3 + downloads dataset
+DATASET_PREFIX = CRC_SUBDIR
+
 
 
 @st.cache_resource
@@ -85,7 +99,7 @@ def list_s3_images_for_class(class_name: str, max_images: int = 12) -> List[str]
     prefix = f"{DATASET_PREFIX}/{class_name}/"
 
     keys: List[str] = []
-    resp = s3_client.list_objects_v2(Bucket=BUCKET, Prefix=prefix)
+    resp = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
 
     for obj in resp.get("Contents", []):
         key = obj["Key"]
@@ -100,9 +114,91 @@ def load_image_from_s3(key: str) -> Image.Image:
     Charge une image depuis S3 en mémoire et la retourne comme PIL.Image.
     """
     s3_client, _ = get_s3_clients()
-    obj = s3_client.get_object(Bucket=BUCKET, Key=key)
+    obj = s3_client.get_object(Bucket=S3_BUCKET, Key=key)
     data = obj["Body"].read()
     return Image.open(io.BytesIO(data)).convert("RGB")
+
+def download_model_from_s3_if_needed(filename: str) -> Path:
+    """
+    Télécharge un modèle depuis s3://S3_BUCKET/models/ vers MODELS_DIR si absent.
+    """
+    s3_client, _ = get_s3_clients()
+    key = f"{S3_MODELS_PREFIX}/{filename}"
+    local_path = MODELS_DIR / filename
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not local_path.exists():
+        st.write(f"⬇️ Downloading model from S3: s3://{S3_BUCKET}/{key}")
+        s3_client.download_file(S3_BUCKET, key, str(local_path))
+
+    return local_path
+
+
+def download_s3_key_to_data_root(key: str) -> Path:
+    """
+    Télécharge une image depuis S3 vers DATA_ROOT en respectant l'arborescence.
+
+    Exemple :
+      key = 'CRC-VAL-HE-7K/TUM/img_001.png'
+      → DATA_ROOT / 'CRC-VAL-HE-7K/TUM/img_001.png'
+    """
+    s3_client, _ = get_s3_clients()
+
+    # Ici le layout S3 commence directement par 'CRC-VAL-HE-7K/...'
+    rel = key
+    local_path = DATA_ROOT / rel
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not local_path.exists():
+        s3_client.download_file(S3_BUCKET, key, str(local_path))
+
+    return local_path
+
+
+def build_real_pool_from_s3(
+    selected_classes: List[str],
+    n_per_class: int,
+    seed: int = 42,
+) -> RealImagePool:
+    """
+    Construit un RealImagePool en téléchargeant n_per_class images / classe
+    depuis s3://S3_BUCKET/data/CRC-VAL-HE-7K/<class>/... vers DATA_ROOT.
+    """
+    s3_client, _ = get_s3_clients()
+    rng = random.Random(seed)
+
+    pool: Dict[str, List[str]] = {}
+    excluded: Dict[str, List[str]] = {}
+
+    for class_name in selected_classes:
+        prefix = f"{DATASET_PREFIX}/{class_name}/"  # ex: data/CRC-VAL-HE-7K/TUM/
+        keys: List[str] = []
+
+        paginator = s3_client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=S3_BUCKET, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if key.lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
+                    keys.append(key)
+
+        if not keys:
+            st.warning(f"No images found in S3 under {prefix}")
+            pool[class_name] = []
+            excluded[class_name] = []
+            continue
+
+        rng.shuffle(keys)
+        selected_keys = keys[:n_per_class]
+
+        local_paths: List[str] = []
+        for key in selected_keys:
+            lp = download_s3_key_to_data_root(key)
+            local_paths.append(str(lp))
+
+        pool[class_name] = local_paths
+        excluded[class_name] = list(local_paths)
+
+    return RealImagePool(pool=pool, excluded_from_test=excluded)
 
 
 # ==========================
@@ -164,22 +260,26 @@ if "last_gen_time" not in st.session_state:
 # ==========================
 @st.cache_resource
 def load_cgan_cached():
-    """Charge le modèle cGAN avec cache Streamlit"""
+    """Charge le modèle cGAN avec cache Streamlit (download S3 si besoin)."""
     try:
-        return load_cgan_model(MODELS_DIR / "cgan_best_model.pt", DEVICE)
+        model_path = download_model_from_s3_if_needed("cgan_best_model.pt")
+        return load_cgan_model(model_path, DEVICE)
     except Exception as e:
         st.error(f"Erreur chargement cGAN: {e}")
         return None
 
+
 @st.cache_resource
 def load_pixcell_cached():
-    """Charge le modèle PixCell avec cache Streamlit"""
+    """Charge le modèle PixCell avec cache Streamlit (download S3 si besoin)."""
     try:
+        model_path = download_model_from_s3_if_needed("pixcell256_reference.pt")
         # load_pixcell_model retourne un tuple (pipe, uni_model, uni_transform)
-        return load_pixcell_model(MODELS_DIR / "pixcell256_reference.pt", DEVICE)
+        return load_pixcell_model(model_path, DEVICE)
     except Exception as e:
         st.error(f"Erreur chargement PixCell: {e}")
         return None
+
 
 @st.cache_resource
 def load_mobilenet_cached():
@@ -189,6 +289,7 @@ def load_mobilenet_cached():
     except Exception as e:
         st.error(f"Erreur chargement MobileNetV2: {e}")
         return None
+
 
 # ==========================
 # Header
@@ -242,15 +343,17 @@ with col1:
     
     # Bouton pour construire le pool
     if st.button("Build real images pool", key="build_pool", use_container_width=True):
-        with st.spinner("Building real images pool..."):
+        with st.spinner("Building real images pool from S3..."):
             try:
-                pool = sample_real_images_per_class(
+                # Version S3 → local → RealImagePool
+                pool = build_real_pool_from_s3(
                     selected_classes=selected_classes,
-                    n_per_class=n_real_per_class
+                    n_per_class=n_real_per_class,
+                    seed=SEED,
                 )
                 st.session_state["real_pool"] = pool
                 total_real = sum(len(paths) for paths in pool.pool.values())
-                st.success(f"✅ Pool total: {n_real_per_class} × {len(selected_classes)} = {total_real} real images")
+                st.success(f"✅ Pool total: {total_real} real images downloaded from S3")
             except Exception as e:
                 st.error(f"Erreur: {e}")
     
@@ -401,7 +504,7 @@ with col2:
                 key="s3_n_images"
             )
             if st.button("Load images from S3", key="s3_load_button"):
-                with st.spinner(f"Loading {n_s3_images} images from S3 ({BUCKET}/{DATASET_PREFIX}/{s3_class})..."):
+                with st.spinner(f"Loading {n_s3_images} images from S3 ({S3_BUCKET}/{DATASET_PREFIX}/{s3_class})..."):
                     keys = list_s3_images_for_class(s3_class, max_images=n_s3_images * 2)
                     if not keys:
                         st.warning(f"No images found in S3 under {DATASET_PREFIX}/{s3_class}/")
