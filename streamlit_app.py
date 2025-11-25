@@ -463,6 +463,7 @@ with col2:
         
         with tab2:
             st.markdown("### Real vs Synthetic comparison")
+            generator_type = st.session_state.get("generator_type", "cgan")
             
             # Paires réel/synthétique + défilement des images synthétiques
             if (st.session_state["real_pool"] is not None and 
@@ -479,113 +480,134 @@ with col2:
                         st.session_state["synth_slideshow_idx"] = 0
                         st.session_state["synth_slideshow_running"] = False
                     
-                    n_synth = len(synth_images)
-                    
                     col_left, col_right = st.columns(2)
                     
                     # Affichage image réelle
                     real_width = None
+                    real_idx = 0
+                    real_img_path = None
                     with col_left:
                         try:
                             # Choix de l'image réelle de référence (au-dessus de l'image)
-                            # S'assurer que la valeur est valide par rapport à la taille actuelle
                             current_real_idx = st.session_state.get("real_pair_idx", 1)
                             if current_real_idx > len(real_images) or current_real_idx < 1:
                                 current_real_idx = 1
                                 st.session_state["real_pair_idx"] = 1
-                            # Le widget utilise automatiquement la valeur du session_state grâce à la key
                             real_idx_raw = st.number_input(
                                 "Real image index:",
                                 min_value=1,
                                 max_value=len(real_images),
+                                value=1,
                                 key="real_pair_idx"
                             )
                             real_idx = real_idx_raw - 1
 
                             # Si l'index réel a changé, revenir au premier index synthétique
-                            if st.session_state["prev_real_pair_idx"] is None or st.session_state["prev_real_pair_idx"] != real_idx:
-                                # Retour à la première image synthétique lorsque l'image réelle change
+                            if (
+                                st.session_state["prev_real_pair_idx"] is None
+                                or st.session_state["prev_real_pair_idx"] != real_idx
+                            ):
                                 st.session_state["synth_slideshow_idx"] = 0
                                 st.session_state["synth_slideshow_running"] = False
                                 st.session_state["synth_manual_idx"] = 1
                             st.session_state["prev_real_pair_idx"] = real_idx
 
-                            real_img = Image.open(real_images[real_idx])
+                            real_img_path = real_images[real_idx]
+                            real_img = Image.open(real_img_path)
                             real_width, _ = real_img.size
                             st.image(real_img, caption="Real", width=real_width)
                         except Exception as e:
                             st.error(f"Error loading real image: {e}")
+                            real_img_path = None
                     
-                    with col_right:
-                        try:
-                            # Forcer un index valide (après avoir géré le changement d'image réelle)
-                            st.session_state["synth_slideshow_idx"] %= n_synth
-                            
-                            # Sélecteur d'index synthétique au-dessus de l'image (toujours visible)
-                            # S'assurer que la valeur est valide par rapport à la taille actuelle
-                            current_synth_idx = st.session_state.get("synth_manual_idx", 1)
-                            if current_synth_idx > n_synth or current_synth_idx < 1:
-                                current_synth_idx = 1
-                                st.session_state["synth_manual_idx"] = 1
-                            
-                            # En mode slideshow, synchroniser avec l'index du slideshow
-                            if st.session_state["synth_slideshow_running"]:
-                                st.session_state["synth_manual_idx"] = st.session_state["synth_slideshow_idx"] + 1
-                                current_synth_idx = st.session_state["synth_slideshow_idx"] + 1
-                            
-                            # Le widget utilise automatiquement la valeur du session_state grâce à la key
-                            manual_idx_raw = st.number_input(
-                                "Synthetic index:",
-                                min_value=1,
-                                max_value=n_synth,
-                                key="synth_manual_idx"
+                    # Construction du sous-ensemble synthétique
+                    real_img_path = real_img_path or (real_images[real_idx] if real_images else None)
+                    if real_img_path is not None:
+                        if generator_type == "pixcell":
+                            filtered_synth_images = [
+                                img for img in synth_images
+                                if getattr(img, "generator_type", None) == "pixcell"
+                                and getattr(img, "ref_path", None) == real_img_path
+                            ]
+                            if not filtered_synth_images:
+                                filtered_synth_images = [
+                                    img for img in synth_images
+                                    if getattr(img, "generator_type", None) == "pixcell"
+                                ]
+                        else:
+                            filtered_synth_images = [
+                                img for img in synth_images
+                                if getattr(img, "generator_type", None) == "cgan"
+                            ] or synth_images
+                    else:
+                        filtered_synth_images = []
+
+                    if not filtered_synth_images:
+                        col_right.info("No synthetic images available for this selection.")
+                    else:
+                        n_synth = len(filtered_synth_images)
+                        st.session_state["synth_slideshow_idx"] %= n_synth
+                        synth_idx = st.session_state["synth_slideshow_idx"]
+                        synth_info = None
+                        
+                        with col_right:
+                            try:
+                                if st.session_state["synth_slideshow_running"]:
+                                    st.session_state["synth_manual_idx"] = synth_idx + 1
+                                default_synth_idx = int(st.session_state.get("synth_manual_idx", synth_idx + 1))
+                                default_synth_idx = max(1, min(default_synth_idx, n_synth))
+                                
+                                manual_idx_raw = st.number_input(
+                                    "Synthetic index:",
+                                    min_value=1,
+                                    max_value=n_synth,
+                                    value=default_synth_idx,
+                                    key="synth_manual_idx"
+                                )
+                                manual_idx = manual_idx_raw - 1
+
+                                if not st.session_state["synth_slideshow_running"]:
+                                    st.session_state["synth_slideshow_idx"] = manual_idx
+                                    synth_idx = manual_idx
+                                else:
+                                    synth_idx = st.session_state["synth_slideshow_idx"]
+                                
+                                synth_info = filtered_synth_images[synth_idx]
+                                synth_img = Image.open(synth_info.path)
+                                st.image(
+                                    synth_img,
+                                    caption=f"Synthetic #{synth_idx+1}",
+                                    width=real_width
+                                )
+                                if generator_type == "pixcell" and getattr(synth_info, "ref_path", None):
+                                    st.caption(f"Source real: {Path(synth_info.ref_path).name}")
+                                
+                                col_btn_left, col_btn_center, col_btn_right = st.columns([0.5, 4, 0.5])
+                                with col_btn_center:
+                                    if st.button(
+                                        "▶  Start / Stop ",
+                                        key="toggle_synth_slideshow",
+                                        use_container_width=True
+                                    ):
+                                        st.session_state["synth_slideshow_running"] = not st.session_state["synth_slideshow_running"]
+
+                            except Exception as e:
+                                st.error(f"Error loading synthetic image: {e}")
+                        
+                        if synth_info is not None:
+                            st.caption(
+                                f"Real index: {real_idx+1} / {len(real_images)} — "
+                                f"Synth index: {synth_idx+1} / {n_synth} — "
+                                f"class: {selected_class_gallery} — "
+                                f"generator: {getattr(synth_info, 'generator_type', 'N/A')}"
                             )
-                            manual_idx = manual_idx_raw - 1
 
-                            # Déterminer l'index synthétique à afficher
-                            if st.session_state["synth_slideshow_running"]:
-                                # En mode slideshow, utiliser l'index du slideshow
-                                synth_idx = st.session_state["synth_slideshow_idx"]
-                            else:
-                                # En mode pause, suivre l'index choisi manuellement
-                                synth_idx = manual_idx
-                                st.session_state["synth_slideshow_idx"] = manual_idx
-
-                            synth_img = Image.open(synth_images[synth_idx].path)
-                            # même largeur que l'image réelle si disponible
-                            st.image(
-                                synth_img,
-                                caption=f"Synthetic #{synth_idx+1}",
-                                width=real_width
-                            )
-                            # Bouton start/stop sous l'image synthétique (centré)
-                            # Bouton de contrôle du diaporama (icône simple avec flèche)
-                            col_btn_left, col_btn_center, col_btn_right = st.columns([0.5, 4, 0.5])
-                            with col_btn_center:
-                                if st.button(
-                                    "▶  Start / Stop ",
-                                    key="toggle_synth_slideshow",
-                                    use_container_width=True
-                                ):
-                                    st.session_state["synth_slideshow_running"] = not st.session_state["synth_slideshow_running"]
-
-                        except Exception as e:
-                            st.error(f"Error loading synthetic image: {e}")
-                    
-                    st.caption(
-                        f"Real index: {real_idx+1} / {len(real_images)} — "
-                        f"Synth index: {synth_idx+1} / {len(synth_images)} — "
-                        f"class: {selected_class_gallery} — "
-                        f"generator: {synth_images[synth_idx].generator_type if synth_idx < len(synth_images) else 'N/A'}"
-                    )
-
-                    # Avancement automatique (défilement lent, reboucle en continu)
-                    if st.session_state["synth_slideshow_running"]:
-                        import time
-                        time.sleep(2.0)
-                        next_idx = (synth_idx + 1) % n_synth
-                        st.session_state["synth_slideshow_idx"] = next_idx
-                        st.rerun()
+                        if st.session_state["synth_slideshow_running"]:
+                            import time
+                            time.sleep(2.0)
+                            next_idx = (st.session_state["synth_slideshow_idx"] + 1) % n_synth
+                            st.session_state["synth_slideshow_idx"] = next_idx
+                            st.rerun()
                 else:
                     st.info("Need both real and synthetic images for comparison")
             else:

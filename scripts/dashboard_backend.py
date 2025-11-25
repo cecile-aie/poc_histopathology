@@ -53,6 +53,7 @@ class GeneratedImageInfo:
     generator_type: str
     experiment_id: str
     index: int
+    ref_path: Optional[str] = None  # chemin de l'image réelle de référence (pour PixCell)
 
 
 @dataclass
@@ -684,7 +685,8 @@ def generate_with_pixcell(
                 class_id=class_id,
                 generator_type="pixcell",
                 experiment_id=experiment_id,
-                index=i
+                index=i,
+                ref_path=ref_path,  # lien explicite vers l'image réelle conditionnante
             ))
             
         except Exception as e:
