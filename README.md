@@ -49,6 +49,7 @@ docker-compose up --build
 ## 📂 Structure du Projet
 
 L'architecture est modulaire pour séparer la logique de génération, l'évaluation et l'interface utilisateur.
+Les dossiers de ressources et sorties (/models, /data, /outputs, /checkpoints) sont à placer à la racine.
 
 ```text
 .
@@ -68,7 +69,7 @@ L'architecture est modulaire pour séparer la logique de génération, l'évalua
 ├── Dockerfile             # Définition de l'environnement
 └── docker-compose.yml     # Orchestration des services
 ```
-
+ 
 -----
 
 ## 📓 Guide des Notebooks
