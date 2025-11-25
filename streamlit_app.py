@@ -478,16 +478,15 @@ with col2:
                     with col_right:
                         try:
                             # Sélecteur d'index synthétique au-dessus de l'image (toujours visible)
-                            # Si le diaporama est en cours, synchroniser la valeur du widget avec l'index courant
+                            if "synth_manual_idx" not in st.session_state:
+                                st.session_state["synth_manual_idx"] = synth_idx + 1
                             if st.session_state["synth_slideshow_running"]:
                                 st.session_state["synth_manual_idx"] = synth_idx + 1
 
-                            default_synth_idx = st.session_state.get("synth_manual_idx", synth_idx + 1)
                             manual_idx_raw = st.number_input(
                                 "Synthetic index:",
                                 min_value=1,
                                 max_value=n_synth,
-                                value=default_synth_idx,
                                 key="synth_manual_idx"
                             )
                             manual_idx = manual_idx_raw - 1
@@ -504,13 +503,16 @@ with col2:
                                 caption=f"Synthetic #{synth_idx+1}",
                                 width=real_width
                             )
-                            # Bouton start/stop sous l'image synthétique
+                            # Bouton start/stop sous l'image synthétique (centré)
                             # Bouton de contrôle du diaporama (icône simple avec flèche)
-                            if st.button(
-                                "▶  Start / Stop ",
-                                key="toggle_synth_slideshow"
-                            ):
-                                st.session_state["synth_slideshow_running"] = not st.session_state["synth_slideshow_running"]
+                            col_btn_left, col_btn_center, col_btn_right = st.columns([0.5, 4, 0.5])
+                            with col_btn_center:
+                                if st.button(
+                                    "▶  Start / Stop ",
+                                    key="toggle_synth_slideshow",
+                                    use_container_width=True
+                                ):
+                                    st.session_state["synth_slideshow_running"] = not st.session_state["synth_slideshow_running"]
 
                         except Exception as e:
                             st.error(f"Error loading synthetic image: {e}")
