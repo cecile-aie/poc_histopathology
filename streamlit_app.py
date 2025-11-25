@@ -108,6 +108,15 @@ if "prev_real_pair_idx" not in st.session_state:
 if "last_gen_time" not in st.session_state:
     # Temps total (en secondes) de la dernière génération d'images
     st.session_state["last_gen_time"] = None
+if "prev_selected_class_gallery" not in st.session_state:
+    # Suivre la classe précédente pour détecter les changements
+    st.session_state["prev_selected_class_gallery"] = None
+if "real_pair_idx" not in st.session_state:
+    # Index de l'image réelle dans la comparaison
+    st.session_state["real_pair_idx"] = 1
+if "synth_manual_idx" not in st.session_state:
+    # Index manuel de l'image synthétique
+    st.session_state["synth_manual_idx"] = 1
 
 # ==========================
 # Cache des modèles (lazy loading)
@@ -201,6 +210,17 @@ with col1:
                 st.session_state["real_pool"] = pool
                 total_real = sum(len(paths) for paths in pool.pool.values())
                 st.success(f"✅ Pool total: {n_real_per_class} × {len(selected_classes)} = {total_real} real images")
+                
+                # Nouvelle expérience : vider les images synthétiques et réinitialiser les index
+                st.session_state["generated_index"] = {}
+                st.session_state["experiment_id"] = None
+                st.session_state["real_pair_idx"] = 1
+                st.session_state["synth_manual_idx"] = 1
+                st.session_state["synth_slideshow_idx"] = 0
+                st.session_state["synth_slideshow_running"] = False
+                st.session_state["prev_real_pair_idx"] = None
+                st.session_state["prev_selected_class_gallery"] = None
+                st.session_state["synth_slideshow_class"] = None
             except Exception as e:
                 st.error(f"Erreur: {e}")
     
@@ -307,6 +327,15 @@ with col1:
                         progress_bar.progress((idx + 1) / total_classes)
                     
                     st.session_state["generated_index"] = generated_index
+                    
+                    # Réinitialiser les index après génération de nouvelles images
+                    st.session_state["real_pair_idx"] = 1
+                    st.session_state["synth_manual_idx"] = 1
+                    st.session_state["synth_slideshow_idx"] = 0
+                    st.session_state["synth_slideshow_running"] = False
+                    st.session_state["prev_real_pair_idx"] = None
+                    st.session_state["prev_selected_class_gallery"] = None
+                    st.session_state["synth_slideshow_class"] = None
                 
                 # Afficher le nombre d'images générées par classe
                 total_generated = sum(len(imgs) for imgs in generated_index.values())
@@ -341,6 +370,17 @@ with col2:
             key="selected_class_gallery",
             horizontal=True
         )
+        
+        # Détecter le changement de classe et réinitialiser les index
+        if st.session_state["prev_selected_class_gallery"] != selected_class_gallery:
+            st.session_state["prev_selected_class_gallery"] = selected_class_gallery
+            # Réinitialiser les index à 1 quand la classe change
+            st.session_state["real_pair_idx"] = 1
+            st.session_state["synth_manual_idx"] = 1
+            st.session_state["synth_slideshow_idx"] = 0
+            st.session_state["synth_slideshow_running"] = False
+            st.session_state["prev_real_pair_idx"] = None
+            st.session_state["synth_slideshow_class"] = selected_class_gallery
         
         # Compteurs
         n_real_gallery = 0
@@ -440,10 +480,7 @@ with col2:
                         st.session_state["synth_slideshow_running"] = False
                     
                     n_synth = len(synth_images)
-                    # Forcer un index valide
-                    st.session_state["synth_slideshow_idx"] %= n_synth
-                    synth_idx = st.session_state["synth_slideshow_idx"]
-
+                    
                     col_left, col_right = st.columns(2)
                     
                     # Affichage image réelle
@@ -451,11 +488,16 @@ with col2:
                     with col_left:
                         try:
                             # Choix de l'image réelle de référence (au-dessus de l'image)
+                            # S'assurer que la valeur est valide par rapport à la taille actuelle
+                            current_real_idx = st.session_state.get("real_pair_idx", 1)
+                            if current_real_idx > len(real_images) or current_real_idx < 1:
+                                current_real_idx = 1
+                                st.session_state["real_pair_idx"] = 1
+                            # Le widget utilise automatiquement la valeur du session_state grâce à la key
                             real_idx_raw = st.number_input(
                                 "Real image index:",
                                 min_value=1,
                                 max_value=len(real_images),
-                                value=1,
                                 key="real_pair_idx"
                             )
                             real_idx = real_idx_raw - 1
@@ -466,7 +508,6 @@ with col2:
                                 st.session_state["synth_slideshow_idx"] = 0
                                 st.session_state["synth_slideshow_running"] = False
                                 st.session_state["synth_manual_idx"] = 1
-                                synth_idx = 0
                             st.session_state["prev_real_pair_idx"] = real_idx
 
                             real_img = Image.open(real_images[real_idx])
@@ -477,12 +518,22 @@ with col2:
                     
                     with col_right:
                         try:
+                            # Forcer un index valide (après avoir géré le changement d'image réelle)
+                            st.session_state["synth_slideshow_idx"] %= n_synth
+                            
                             # Sélecteur d'index synthétique au-dessus de l'image (toujours visible)
-                            if "synth_manual_idx" not in st.session_state:
-                                st.session_state["synth_manual_idx"] = synth_idx + 1
+                            # S'assurer que la valeur est valide par rapport à la taille actuelle
+                            current_synth_idx = st.session_state.get("synth_manual_idx", 1)
+                            if current_synth_idx > n_synth or current_synth_idx < 1:
+                                current_synth_idx = 1
+                                st.session_state["synth_manual_idx"] = 1
+                            
+                            # En mode slideshow, synchroniser avec l'index du slideshow
                             if st.session_state["synth_slideshow_running"]:
-                                st.session_state["synth_manual_idx"] = synth_idx + 1
-
+                                st.session_state["synth_manual_idx"] = st.session_state["synth_slideshow_idx"] + 1
+                                current_synth_idx = st.session_state["synth_slideshow_idx"] + 1
+                            
+                            # Le widget utilise automatiquement la valeur du session_state grâce à la key
                             manual_idx_raw = st.number_input(
                                 "Synthetic index:",
                                 min_value=1,
@@ -491,10 +542,14 @@ with col2:
                             )
                             manual_idx = manual_idx_raw - 1
 
-                            # En mode pause, on suit l'index choisi manuellement
-                            if not st.session_state["synth_slideshow_running"]:
-                                st.session_state["synth_slideshow_idx"] = manual_idx
+                            # Déterminer l'index synthétique à afficher
+                            if st.session_state["synth_slideshow_running"]:
+                                # En mode slideshow, utiliser l'index du slideshow
+                                synth_idx = st.session_state["synth_slideshow_idx"]
+                            else:
+                                # En mode pause, suivre l'index choisi manuellement
                                 synth_idx = manual_idx
+                                st.session_state["synth_slideshow_idx"] = manual_idx
 
                             synth_img = Image.open(synth_images[synth_idx].path)
                             # même largeur que l'image réelle si disponible
