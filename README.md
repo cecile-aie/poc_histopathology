@@ -129,4 +129,4 @@ Ce projet s'appuie sur de nombreux travaux de recherche, notamment :
   * **PixCell** & **UNI** (Mahmood Lab et al.) pour les Foundation Models en pathologie.
   * **Pathoduet** (Shengyi Hua & al.) pour le backbone spécialisé en histopathologie (utilisé pour FID-Duet et tête de sortie du discriminateur cGAN)
 
-*Projet réalisé dans le cadre du parcours Ingénieur IA (P9).*
+*Projet réalisé dans le cadre du parcours Ingénieur IA OpenClassRooms (p9-Développez une preuve de concept).*
