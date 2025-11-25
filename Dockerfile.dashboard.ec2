@@ -1,8 +1,11 @@
-# Dockerfile.dashboard
+# Dockerfile.dashboard.ec2
 # Image PyTorch + CUDA déjà prête pour exécution GPU
 FROM pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive
+
+# On travaille dans /workspace (là où docker-compose va monter ton projet)
+WORKDIR /workspace
 
 # Outils système utiles + libs pour OpenCV + sentencepiece
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,10 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsentencepiece-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Dossier de travail
-WORKDIR /workspace
-
-# Dépendances Python dédiées au dashboard
+# Fichier de dépendances spécifique au dashboard
 COPY requirements_dashboard.txt .
 
 RUN pip install --no-cache-dir -r requirements_dashboard.txt
@@ -35,7 +35,7 @@ ENV PYTHONUNBUFFERED=1
 # Port Streamlit
 EXPOSE 8501
 
-# Le code (streamlit_app_ec_2.py, dashboard_backend.py, p9dg, metrics, etc.)
-# est monté en volume par docker-compose (voir docker-compose.dashboard.yml)
+# Le code (streamlit_app.py, dashboard_backend.py, p9dg, metrics, etc.)
+# est monté en volume par docker-compose (voir docker-compose.dashboard_ec2.yml)
 
-CMD ["streamlit", "run", "streamlit_app_ec_2.py", "--server.address=0.0.0.0", "--server.port=8501"]
+CMD ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]

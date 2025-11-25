@@ -6,41 +6,31 @@ services:
       context: .
       dockerfile: Dockerfile.dashboard.ec2
     container_name: p9-dashboard
-
-    # Redémarre auto si l'instance reboot
     restart: unless-stopped
-
     ports:
       - "8501:8501"
 
     volumes:
       # Code + notebooks
       - .:/workspace
-      # Sorties / artefacts générés par le dashboard
+      # Sorties / artefacts
       - ./outputs:/workspace/outputs
-      # Modèles (cGAN, PixCell, CNN, etc.)
+      # Modèles
       - ./models:/workspace/models
-      # Données (réelles / synthétiques si besoin)
+      # Données
       - ./data:/workspace/data
+      # 🔥 Checkpoints (PixCell, etc.)
+      - ./checkpoints:/workspace/checkpoints
 
-    # Charge .env si présent (HF_TOKEN, etc.)
     env_file:
       - .env
-
     environment:
-      # GPU (ignoré sur instance CPU, pris en compte sur EC2 GPU avec nvidia-container-toolkit)
       - CUDA_VISIBLE_DEVICES=0
-
-      # Streamlit
       - STREAMLIT_SERVER_ADDRESS=0.0.0.0
       - STREAMLIT_SERVER_PORT=8501
-
-      # Tokens / région AWS (valeurs réelles injectées via .env ou env EC2)
       - HF_TOKEN=${HF_TOKEN}
       - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-eu-west-3}
-
-      # Optionnel : bucket S3 si tu en as un
       - S3_BUCKET=p9-histo-data
 
-    # Nécessite nvidia-container-toolkit côté hôte (sur EC2 GPU)
-    # gpus: all
+    gpus: all
+
