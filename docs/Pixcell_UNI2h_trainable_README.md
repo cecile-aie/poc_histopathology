@@ -14,36 +14,36 @@ Le pipeline repose sur une architecture hybride combinant des modèles gelés (*
 ```mermaid
 graph TD
     %% Entrée
-    Input[Image Réelle H&E] -->|Resize 224x224| A[UNI2-h Backbone<br/>(Frozen)]
+    Input["Image Réelle H&E"] -->|"Resize 224x224"| A["UNI2-h Backbone<br/>(Frozen)"]
     
     %% Style Frozen (Bleu clair)
     style A fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
 
     %% Adapter
-    A -->|Embedding 1536d| B[Adapter MLP<br/>(Trainable)]
+    A -->|"Embedding 1536d"| B["Adapter MLP<br/>(Trainable)"]
     
     %% Style Trainable (Orange clair)
     style B fill:#ffccbc,stroke:#ff5722,stroke-width:2px
     
     %% Connexion vers l'intérieur du U-Net
-    B -->|Conditioning Vector| D
+    B -->|"Conditioning Vector"| D
     
     %% Bloc U-Net
-    subgraph UNetBox [PixCell U-Net Wrapper]
+    subgraph UNetBox ["PixCell U-Net Wrapper"]
         direction TB
-        D[Attention Layers<br/>(Frozen)]
-        E[LoRA Layers<br/>(Trainable)]
+        D["Attention Layers<br/>(Frozen)"]
+        E["LoRA Layers<br/>(Trainable)"]
         
         %% Couleurs internes
         style D fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
         style E fill:#ffccbc,stroke:#ff5722,stroke-width:2px
         
         %% Interaction LoRA
-        D <==>|Injection Poids| E
+        D <==>|"Injection Poids"| E
     end
     
     %% Sortie
-    D -->|Denoising| Output[Image Synthétique]
+    D -->|"Denoising"| Output["Image Synthétique"]
 ```
 
 ### 1\. Le "Pont" Sémantique : L'Adapter
