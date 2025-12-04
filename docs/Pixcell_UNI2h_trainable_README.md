@@ -13,23 +13,36 @@ Le pipeline repose sur une architecture hybride combinant des modèles gelés (*
 
 ```mermaid
 graph TD
-    Input[Image Réelle H&E] -->|224x224| A[UNI2-h Backbone]
-    A -.->|Frozen| A
-    A -->|Embedding 1536d| B[Adapter MLP]
-    style B fill:#f96,stroke:#333,stroke-width:2px
+    %% Entrée
+    Input[Image Réelle H&E] -->|Resize 224x224| A[UNI2-h Backbone<br/>(Frozen)]
     
-    %% Connexion directe de l'adapter vers l'intérieur du subgraph
+    %% Style Frozen (Bleu clair)
+    style A fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+
+    %% Adapter
+    A -->|Embedding 1536d| B[Adapter MLP<br/>(Trainable)]
+    
+    %% Style Trainable (Orange clair)
+    style B fill:#ffccbc,stroke:#ff5722,stroke-width:2px
+    
+    %% Connexion vers l'intérieur du U-Net
     B -->|Conditioning Vector| D
     
-    %% ID du subgraph sans tiret ni espace
-    subgraph UNetBox [PixCell U-Net Frozen + LoRA]
-        D[Attention Layers] 
-        E[LoRA Layers]
-        style E fill:#f96,stroke:#333,stroke-width:2px
-        D <--> E
+    %% Bloc U-Net
+    subgraph UNetBox [PixCell U-Net Wrapper]
+        direction TB
+        D[Attention Layers<br/>(Frozen)]
+        E[LoRA Layers<br/>(Trainable)]
+        
+        %% Couleurs internes
+        style D fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+        style E fill:#ffccbc,stroke:#ff5722,stroke-width:2px
+        
+        %% Interaction LoRA
+        D <==>|Injection Poids| E
     end
     
-    %% Sortie depuis le composant interne
+    %% Sortie
     D -->|Denoising| Output[Image Synthétique]
 ```
 
