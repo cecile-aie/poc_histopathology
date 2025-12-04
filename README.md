@@ -126,7 +126,8 @@ Les notebooks, situés dans le dossier `notebooks/`, tracent l'histoire complèt
 | Modèle | Description |
 |--------|-------------|
 | [🟣 cGAN](docs/cGAN_README.md) | Modèle StyleGAN2 + tête PathoDuet |
-| [🔵 PixCell (Diffusion)](docs/pixcell_README.md) | Pipeline diffusion UNI2-h |
+| [🔵 PixCell (Diffusion) gated](Pixcell_UNI2h_gated_README.md) | Pipeline diffusion UNI2-h (Zero-shot) |
+| [💠 PixCell (Trainable)](docs/Pixcell_UNI2h_trainable_README.md) | Architecture hybride (Adapter + LoRA) |
 | [🟢 Radiomics](docs/baseline_radiomics_README.md) | Extraction PyRadiomics |
 | [🟠 SSM](docs/baseline_ssm_README.md) | Modèles de forme statistiques |
 | [⚫ CNN Baseline](docs/baseline_CNN.md) | MobileNetV2 classifier |

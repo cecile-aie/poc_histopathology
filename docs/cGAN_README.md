@@ -1,4 +1,3 @@
----
 
 # cGAN conditionnel – Configuration technique du POC
 
