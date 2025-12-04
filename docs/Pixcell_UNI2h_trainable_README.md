@@ -17,17 +17,20 @@ graph TD
     A -.->|Frozen| A
     A -->|Embedding 1536d| B[Adapter MLP]
     style B fill:#f96,stroke:#333,stroke-width:2px
-    B -->|Conditioning Vector| C[PixCell U-Net]
     
-    subgraph U-Net [PixCell U-Net (Frozen + LoRA)]
+    %% Connexion directe de l'adapter vers l'intérieur du subgraph
+    B -->|Conditioning Vector| D
+    
+    %% ID du subgraph sans tiret ni espace
+    subgraph UNetBox [PixCell U-Net Frozen + LoRA]
         D[Attention Layers] 
         E[LoRA Layers]
         style E fill:#f96,stroke:#333,stroke-width:2px
         D <--> E
     end
     
-    C --> U-Net
-    U-Net -->|Denoising| Output[Image Synthétique]
+    %% Sortie depuis le composant interne
+    D -->|Denoising| Output[Image Synthétique]
 ```
 
 ### 1\. Le "Pont" Sémantique : L'Adapter
