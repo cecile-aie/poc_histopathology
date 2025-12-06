@@ -1,122 +1,281 @@
 
------
+---
 
-# 🧠 PixCell Adapté : Fine-tuning Hybride (Adapter + LoRA)
+# 🧠 PixCell + UNI2-h : Adapter + LoRA dans le notebook `08_UNI2h_Adapter_PixCell_LoRA`
 
-Ce module implémente une stratégie de **Fine-Tuning Efficace (PEFT)** pour adapter le modèle génératif PixCell au domaine spécifique de l'histopathologie colorectale (dataset NCT-CRC-HE).
+Ce notebook met en place une adaptation **légère mais complète** du modèle génératif **PixCell-256** au domaine NCT-CRC-HE, en combinant :
 
-Contrairement à l'approche "naïve" (Zero-Shot), cette architecture permet d'entraîner des composants légers pour corriger le **Domain Shift** (dérive de couleur et de texture) tout en conservant la puissance sémantique des Foundation Models pré-entraînés.
+* un **Adapter** entraînable entre l’encodeur **UNI2-h** et le backbone PixCell,
+* des **LoRA “allégées”** injectées manuellement dans les couches d’attention du transformeur PixCell,
+* une **boucle de diffusion OOM-friendly** (micro-batch, gradient accumulation, gradient checkpointing).
 
-## 📐 Architecture Technique
+---
 
-Le pipeline repose sur une architecture hybride combinant des modèles gelés (*Frozen*) et des modules entraînables (*Trainable*).
+## 📐 Architecture effective dans ce notebook
+
+Le pipeline complet peut se résumer ainsi :
 
 ```mermaid
 graph TD
     %% Entrée
-    Input["Image Réelle H&E"] -->|"Resize 224x224"| A["UNI2-h Backbone<br/>(Frozen)"]
-    
-    %% Style Frozen (Bleu clair)
-    style A fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    Input["Tuile réelle H&E (NCT-CRC-HE)"] -->|"224×224"| UNI["UNI2-h<br/>(gelé)"]
 
-    %% Adapter
-    A -->|"Embedding 1536d"| B["Adapter MLP<br/>(Trainable)"]
-    
-    %% Style Trainable (Orange clair)
-    style B fill:#ffccbc,stroke:#ff5722,stroke-width:2px
-    
-    %% Connexion vers l'intérieur du U-Net
-    B -->|"Conditioning Vector"| D
-    
-    %% Bloc U-Net
-    subgraph UNetBox ["PixCell U-Net Wrapper"]
+    %% UNI
+    style UNI fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+
+    UNI -->|"Embedding 1×1536"| ADAPT["Adapter MLP<br/>(entraînable)"]
+    style ADAPT fill:#ffccbc,stroke:#ff5722,stroke-width:2px
+
+    ADAPT -->|"Context UNI (tokens)"| CTX["ctx UNI2-h<br/>(fp16/fp32)"]
+
+    %% Bloc PixCell
+    subgraph PIXCELL ["PixCell-256 (Diffusers)<br/>VAE SD3 + Transformer"]
         direction TB
-        D["Attention Layers<br/>(Frozen)"]
-        E["LoRA Layers<br/>(Trainable)"]
-        
-        %% Couleurs internes
-        style D fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
-        style E fill:#ffccbc,stroke:#ff5722,stroke-width:2px
-        
-        %% Interaction LoRA
-        D <==>|"Injection Poids"| E
+        CTX --> ATT["Blocs d'attention<br/>(gelés)"]
+        style ATT fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+
+        ATT <==>|"ΔW = A·B (LoRA)"| LORA["LoRA Rank-r<br/>(entraînable)"]
+        style LORA fill:#ffccbc,stroke:#ff5722,stroke-width:2px
+
+        ATT --> LAT["Latents débruités<br/>(ẑ_t-1)"]
     end
-    
-    %% Sortie
-    D -->|"Denoising"| Output["Image Synthétique"]
+
+    LAT -->|"decode VAE SD3"| OUT["Tuile synthétique 256×256"]
 ```
 
-### 1\. Le "Pont" Sémantique : L'Adapter
+### Points clés :
 
-Le modèle UNI2-h produit des embeddings de dimension $1 \times 1536$. Le modèle PixCell, conçu à l'origine pour du texte ou d'autres modalités, ne peut ingérer ces vecteurs bruts.
+* **UNI2-h** est entièrement gelé : il sert de *backbone sémantique* pour extraire un embedding 1×1536 par image.
+* L’**Adapter MLP** projette cet embedding UNI dans l’espace de conditionnement attendu par PixCell (dimension de contexte du transformer).
+* Les **LoRA** sont appliquées **dans les couches d’attention** du transformer PixCell (self/cross-attention, sous-ensemble “allégé” de modules).
+* Le **VAE SD3** (`stabilityai/stable-diffusion-3.5-large`, sous-dossier `vae`) est utilisé comme encodeur/décodeur de latents.
 
-  * **Rôle :** L'Adapter est un réseau dense (MLP) léger qui projette l'espace latent d'UNI2-h vers l'espace de conditionnement de PixCell.
-  * **Pourquoi l'entraîner ?** Il apprend à "traduire" les caractéristiques médicales extraites par UNI2-h (forme des noyaux, densité) en instructions de génération compréhensibles par le U-Net.
+---
 
-### 2\. La Texture Fine : LoRA (Low-Rank Adaptation)
+## 🧩 Particularités techniques de ce notebook
 
-Pour adapter le style visuel (colorimétrie H\&E, grain de la lame) sans ré-entraîner les milliards de paramètres du U-Net (coûteux et instable), nous injectons des couches **LoRA**.
+### 1. Compatibilité `diffusers` / `peft` / `transformers`
 
-  * **Mécanisme d'Insertion :** Les LoRA ciblent spécifiquement les couches d'**Attention (Self-Attention & Cross-Attention)** du U-Net.
-  * **Fonctionnement :** Au lieu de modifier la matrice de poids $W$ du modèle, LoRA ajoute une déviation apprise $\Delta W$ décomposée en deux matrices de rang faible $A$ et $B$ (telles que $\Delta W = A \times B$).
-      * $W_{frozen}$ reste inchangé.
-      * Seules les petites matrices $A$ et $B$ sont mises à jour par rétropropagation.
-  * **Avantage :** Cela permet de modifier le comportement profond du modèle (comment il "attend" au conditionnement) avec \< 1% de paramètres supplémentaires.
-
-## ⚙️ Stratégie d'Entraînement
-
-Le succès de l'adaptation repose sur un réglage précis des hyperparamètres, critique pour éviter le "catastrophic forgetting" ou le sur-apprentissage.
-
-### Configuration Critique
-
-  * **Précision Mixte (FP16) :** Indispensable pour réduire l'empreinte mémoire VRAM et accélérer le calcul des gradients sur les LoRA.
-  * **Optimiseur :** `AdamW` avec un *learning rate* spécifique pour les LoRA (généralement autour de `1e-4`), souvent différent de celui de l'Adapter.
-  * **Noise Scheduler :** Utilisation de `DDPMScheduler` pour l'entraînement (stabilité) et bascule vers `DDIMScheduler` ou `EulerAncestral` pour l'inférence (vitesse).
-
-### Paramètres LoRA
-
-  * **Rank (r) :** Fixé à `4` ou `8`. Un rang faible force le modèle à capturer l'essence du style sans mémoriser les images d'entraînement par cœur.
-  * **Alpha :** Facteur d'échelle (scaling) déterminant l'influence des poids LoRA par rapport aux poids gelés. Un alpha élevé renforce l'adaptation au nouveau domaine.
-
-## 🚀 Entraînement et Inférence
-
-### Lancement de l'entraînement
-
-Le script gère automatiquement le chargement des poids, l'injection des LoRA via `peft` et la boucle d'entraînement.
+Les versions récentes de `diffusers` et `peft` attendent un module :
 
 ```python
-# Extrait de la configuration
-config = {
-    "mixed_precision": "fp16",
-    "gradient_accumulation_steps": 4,  # Pour simuler un gros batch size
-    "learning_rate": 1e-4,
-    "lora_rank": 8,
-    "lora_target_modules": ["to_k", "to_q", "to_v", "to_out.0"] # Cible les couches d'attention
-}
-
-# Lancer le training
-python train_adapter_lora.py --config config.yaml
+transformers.modeling_layers.GradientCheckpointingLayer
 ```
 
-### Inférence
+qui n’existe plus dans `transformers>=4.45`.
+Pour empêcher `peft` de casser l’import **alors qu’on ne l’utilise pas réellement**, le notebook :
 
-Pour générer des images, le pipeline charge le U-Net de base, puis "fusionne" ou active les poids LoRA et l'Adapter.
+* crée un **module factice** `transformers.modeling_layers` avec un stub `GradientCheckpointingLayer`,
+* force la désactivation du backend PEFT via des flags globaux (`USE_PEFT_BACKEND = False` côté diffusers),
+* évite tout chargement automatique de LoRA via `peft` :
+  👉 **les LoRA sont gérées manuellement dans ce notebook, sans `PeftModel`.**
+
+Cela permet :
+
+* de charger `PixCell-256` comme **pipeline diffusers classique**,
+* d’attacher nos LoRA custom sans dépendre des conventions `peft`.
+
+### 2. Chargement du pipeline PixCell
+
+Le pipeline est construit explicitement :
+
+* VAE SD3 externe (recommandé par les auteurs de PixCell),
+* pipeline PixCell avec code distant (`trust_remote_code=True`).
+
+En pratique :
 
 ```python
-# Chargement
-pipeline = load_pixcell_base()
-pipeline.load_lora_weights("path/to/lora_weights.safetensors")
-adapter = load_adapter("path/to/adapter.pth")
+sd3_vae = AutoencoderKL.from_pretrained(
+    "stabilityai/stable-diffusion-3.5-large",
+    subfolder="vae",
+    torch_dtype=DTYPE,
+)
 
-# Génération
-embedding = adapter(uni2h_encoder(input_image))
-image = pipeline(embedding, num_inference_steps=50).images[0]
+pipe = DiffusionPipeline.from_pretrained(
+    "StonyBrook-CVLab/PixCell-256",
+    vae=sd3_vae,
+    custom_pipeline="StonyBrook-CVLab/PixCell-pipeline",
+    trust_remote_code=True,
+    torch_dtype=DTYPE,
+).to(device)
+
+_pipe = pipe  # alias utilisé partout dans le notebook
 ```
 
-## 📊 Performance et Apports
+Le **backbone de diffusion** (transformer PixCell) est ensuite référencé via un alias (`BACKBONE`) pour la boucle d’entraînement.
 
-Cette approche permet de :
+### 3. Adapter UNI2-h → contexte PixCell
 
-1.  **Réduire le Domain Shift :** Les images générées respectent la distribution colorimétrique du dataset cible (NCT).
-2.  **Améliorer la Fidélité Morphologique :** Grâce à l'Adapter, le conditionnement par UNI2-h est mieux respecté qu'avec une approche naïve.
-3.  **Modularité :** Les poids LoRA (\~100 Mo) peuvent être partagés facilement sans fournir le modèle complet (plusieurs Go).
+L’Adapter est un petit MLP :
+
+* entrée : tensor `[B, 1, 1536]` issu de UNI2-h,
+* sortie : `[B, T, C_ctx]` (dimension de contexte attendue par PixCell),
+* entraîné en **FP32**, puis cast en `MODEL_DTYPE` (FP16) pour rester compatible avec le backbone.
+
+Il est appliqué **à la fois** :
+
+* sur l’**embedding positif** (image réelle),
+* sur l’**embedding “unconditional”** récupéré via `_pipe.get_unconditional_embedding(B)` pour la guidance.
+
+---
+
+## ⚙️ Boucle d’entraînement : diffusion + LoRA + Adapter
+
+L’entraînement suit le schéma classique des modèles de diffusion, adapté à PixCell :
+
+1. **Dataset & loader**
+
+   * Dataset : **NCT-CRC-HE-100K** (`data/NCT-CRC-HE-100K`), 9 classes histo (`ADI, BACK, DEB, LYM, MUC, MUS, NORM, STR, TUM`).
+   * Chaque sample renvoie une image RGB 256×256, re-scalée en **[-1, 1]** pour le VAE.
+   * Les labels de classe sont disponibles pour l’équilibrage (sampler), mais **aucune perte de classification n’est encore utilisée** dans ce notebook :
+     👉 les LoRA sont conditionnées **uniquement via UNI2-h**, pas via une tête de classe.
+
+2. **Passage dans le VAE**
+
+   * encodage dans l’espace latent,
+   * redimensionnement et scaling via `VAE.config.scaling_factor`.
+
+3. **Bruitage / scheduler**
+
+   * choix aléatoire d’un timestep `t`,
+   * ajout de bruit gaussien `ε` sur les latents,
+   * utilisation du scheduler Diffusers configuré pour **apprentissage en mode “ε-prediction”** (ou `v_prediction` selon config).
+
+4. **Conditionnement UNI2-h**
+
+   * conversion batch `x ∈ [-1,1]` → `[0,1]` → liste de `PIL.Image`,
+   * extraction des embeddings UNI2-h (`uni_embeds_for_pixcell`),
+   * passage dans l’Adapter pour obtenir les contextes `pos_ctx` et `neg_ctx`,
+   * construction de `added_cond_kwargs` (résolution, aspect ratio, etc.) selon les conventions PixCell.
+
+5. **Prédiction de bruit par le backbone**
+
+   * appel au transformer PixCell (`BACKBONE`) avec :
+
+     * `noisy_latents`,
+     * `timesteps`,
+     * `encoder_hidden_states=pos_ctx`,
+     * `added_cond_kwargs=...`,
+   * récupération de `model_pred` (bruit prédit, éventuellement concat `[ε | log_var]` selon la config).
+
+6. **Loss & optimisation**
+
+   * **Loss principale** : MSE entre `model_pred` (ou sa composante ε) et la cible `target` définie par le scheduler,
+   * normalisation par `ACCUM_STEPS`,
+   * **micro-batching** (`MICRO_BATCH = 1`) + **gradient accumulation** (`ACCUM_STEPS` > 1),
+   * **gradient checkpointing** + **tiling VAE** pour tenir dans la VRAM,
+   * optimisation avec `AdamW` sur :
+
+     * paramètres LoRA (attention layers ciblées),
+     * paramètres de l’Adapter.
+
+> 📌 À ce stade, **aucune supervision explicite par classe** n’est utilisée :
+> la séparation inter-classes repose uniquement sur ce que UNI2-h encode déjà dans ses embeddings.
+
+---
+
+## 🧪 Mini-génération de contrôle
+
+Le notebook contient une “mini-génération” :
+
+* échantillonne quelques tuiles réelles (1 par classe),
+* extrait leurs embeddings UNI2-h,
+* passe par l’Adapter,
+* génère des tuiles synthétiques avec `_pipe` (PixCell + LoRA + Adapter),
+* affiche un petit panel **référence / synthétique** par classe.
+
+Cette étape sert à vérifier rapidement :
+
+* que le pipeline est cohérent (pas d’erreur de shapes / dtype),
+* que les LoRA sont bien prises en compte (visible au niveau du style),
+* l’impact visuel de l’adaptation (même si certaines classes peuvent être visuellement dominantes faute de contrainte de classe explicite).
+
+---
+
+## 📊 Génération d’un dataset synthétique pour FID / LPIPS
+
+En fin de notebook, une cellule génère un **dataset synthétique organisé par classe**, destiné aux métriques d’évaluation (FID, LPIPS, downstream, etc.) :
+
+* **Chemin de sortie :**
+  `outputs/08_uni2h_adapter_lora/synthetic_dataset/`
+
+* **Organisation :**
+  un sous-dossier par code de classe NCT :
+
+  ```text
+  synthetic_dataset/
+    ADI/
+      gen_0000.png
+      ...
+    BACK/
+    DEB/
+    LYM/
+    MUC/
+    MUS/
+    NORM/
+    STR/
+    TUM/
+  ```
+
+* **Paramètres :**
+
+  * `NUM_IMAGES_PER_CLASS` (par défaut 50),
+  * `GUIDANCE_SCALE`,
+  * `NUM_INFERENCE_STEPS`,
+  * seed global `SEED_GEN` pour la reproductibilité.
+
+* **Stratégie :**
+
+  * si le dossier réel `data/NCT-CRC-HE-100K/<CLASS_CODE>` existe et contient des images :
+
+    * on échantillonne jusqu’à `NUM_IMAGES_PER_CLASS` tuiles réelles,
+    * pour chacune, on extrait UNI2-h, on passe par l’Adapter, et on génère une image conditionnelle,
+  * sinon :
+
+    * on génère **sans référence** (unconditional) avec l’embedding négatif.
+
+* **Qualité d’UX :**
+
+  * une seule barre de progression par classe (via `tqdm`),
+  * les barres internes Diffusers sont désactivées pour ne pas polluer la sortie.
+
+Ce dossier est ensuite consommé par les notebooks de métriques (`fid_lpips_eval.py`, notebooks dédiés aux FID/LPIPS/downstream).
+
+---
+
+## 🔚 Limitations actuelles & pistes d’amélioration
+
+Limitations assumées dans ce notebook :
+
+* Pas de **tête de classification** ni de **perte de classe** :
+
+  * les LoRA et l’Adapter n’apprennent pas à “séparer” explicitement les 9 classes,
+  * la variabilité inter-classes dépend uniquement de ce que l’embedder UNI2-h encode déjà.
+* LoRA “allégées” :
+
+  * seules certaines couches d’attention sont équipées de LoRA,
+  * le rang est faible pour rester léger, ce qui limite la capacité à modéliser des variations fines par classe.
+
+Pistes naturelles pour une version “v2” :
+
+1. **Ajouter une petite tête de classification sur le contexte UNI**
+   → Cross-entropy sur les labels NCT, combinée à la loss diffusion.
+
+2. **Introduire un conditioning explicite par classe**
+   → embedding de classe ajouté / concaténé au contexte UNI avant d’entrer dans le transformer PixCell.
+
+3. **Explorer des LoRA plus riches ou ciblées par bloc**
+   → par exemple LoRA spécifiques aux blocs les plus sensibles à la morphologie.
+
+---
+
+## 📝 Résumé
+
+Ce notebook concrétise une **adaptation fine de PixCell à l’histopathologie colorectale** via :
+
+* un **Adapter UNI2-h → PixCell** entraînable,
+* des **LoRA manuelles** sur les couches d’attention,
+* une boucle de diffusion robuste aux contraintes de VRAM,
+* un pipeline de **génération synthétique par classe** prêt pour les métriques (FID, LPIPS, downstream).
+
+Il sert de socle “propre” pour tester ensuite des variantes plus ambitieuses (conditionnement explicite par classe, pertes supplémentaires, expérimentations sur la variabilité inter-classes).
