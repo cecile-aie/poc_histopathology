@@ -1,6 +1,6 @@
 """
 Dashboard Streamlit - GAN vs Diffusion models in histopathology
-Are synthetic images helping classification?
+CPU/GPU agnostic but GPU is highly recommended (inference with Pixcell)
 """
 import os
 import sys
@@ -845,7 +845,7 @@ with col3:
             ax_prev.set_ylabel("Actual")
             st.pyplot(fig_prev)
     
-    # (FID/LPIPS section déplacée dans l'onglet 'Real vs Synthetic comparison')
+    
 
 # ==========================
 # Footer avec info accessibilité
