@@ -516,3 +516,22 @@ Les résultats sont stockés dans :
 
 ---
 
+## Addendum: StyleGAN2 (NS-GAN + R1 + ADA) vs WGAN-GP
+
+| Aspect                         | StyleGAN2 (NS-GAN + R1 + ADA)                                                                 | WGAN-GP (Wasserstein GAN + Gradient Penalty)                                           |
+|--------------------------------|----------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------|
+| **Objectif théorique**         | GAN classique avec **loss logistique non-saturante** (NS-GAN) + régularisation R1           | Approximation de la **distance de Wasserstein-1** entre données réelles et générées   |
+| **Rôle du discriminateur**     | **Classificateur** réel / faux (logits → probas via sigmoid implicite)                      | **Critic** qui assigne un **score réel** (sans sigmoid) aux images                     |
+| **Sortie de D**                | Logit \(D(x)\) utilisé dans une perte logistique (softplus / BCE)                           | Score scalaire \(f(x)\), utilisé dans une différence de moyennes                       |
+| **Perte du discriminateur**    | \(\mathbb{E}[\mathrm{softplus}(-D(x_\text{real}))] + \mathbb{E}[\mathrm{softplus}(D(x_\text{fake}))]\) | \(-\mathbb{E}[f(x_\text{real})] + \mathbb{E}[f(x_\text{fake})] + \lambda \cdot GP\)    |
+| **Perte du générateur**        | **Non-saturante** : \(\mathbb{E}[\mathrm{softplus}(-D(G(z)))]\)                             | \(-\mathbb{E}[f(G(z))]\)                                                               |
+| **Régularisation principale**  | **R1 penalty** : \(\gamma/2 \cdot \mathbb{E}\|\nabla_x D(x_\text{real})\|^2\)                | **Gradient penalty** sur des **interpolations** réel/faux : \((\|\nabla f(\hat{x})\|-1)^2\) |
+| **Contrôle Lipschitz**         | Indirect via R1 + architecture + clipping implicite (normalisations, etc.)                  | Explicite via GP → pousse \(\|\nabla f(x)\| \approx 1\)                                 |
+| **Gestion du gradient pour G** | Non-saturating loss + D régularisé → gradient utile même si D est bon                       | Distance de Wasserstein → gradient informatif tant que les distributions ne coïncident |
+| **Stabilité pratique**         | Très stable en haute résolution avec R1 + **ADA** (augmentation adaptative)                 | Très stable aussi, mais **GP coûteux** et plus lent                                    |
+| **Interprétation du score D**  | Logits ≈ “confiance” en réel/faux, **pas directement une distance**                         | Différence de moyennes des scores ≈ estimation de la **distance Wasserstein-1**       |
+| **Complexité d’implémentation**| Pertes logistiques standards + R1 + éventuellement multi-têtes (comme PathoDuet)           | Pertes linéaires + calcul explicite de GP (interpolations + gradients)                 |
+| **Cas d’usage typiques**       | Modèles type StyleGAN/StyleGAN2 (synthèse haute résolution, visages, histopathologie, etc.) | WGAN/WGAN-GP “généraux” ou setups où on veut une vraie métrique de distance de distri  |
+| **Les choix du notebook**          | ✅ NS-GAN (logistic) + ✅ R1 + ✅ ADA + ✅ tête conditionnelle PathoDuet                     | ❌ Pas de Wasserstein, ❌ pas de GP                                                     |
+
+---
