@@ -29,29 +29,24 @@ graph TD
     ADAPT -->|"Context UNI (tokens)"| CTX["ctx UNI2-h<br/>(fp16/fp32)"]
 
     %% Bloc PixCell
-    subgraph PIXCELL ["PixCell-256 (Diffusers)"]
+    subgraph PIXCELL ["PixCell-256 (Diffusers)<br/>VAE SD3 + Transformer"]
         direction TB
 
-        %% <<< label interne en haut du bloc >>>
-        NOTE["VAE SD3 + Transformer"]
-        style NOTE fill:#fffde7,stroke:#fffde7,color:#555
+        %% nœud "spacer" invisible pour créer une marge sous le titre
+        spacer[" "]
+        style spacer fill:#fffde7,stroke:#fffde7
 
-        ATT["Blocs d'attention<br/>(gelés)"]
+        CTX --> ATT["Blocs d'attention<br/>(gelés)"]
         style ATT fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
 
         ATT <==>|"ΔW = A·B (LoRA)"| LORA["LoRA Rank-r<br/>(entraînable)"]
         style LORA fill:#ffccbc,stroke:#ff5722,stroke-width:2px
 
         ATT --> LAT["Latents débruités<br/>(ẑ_t-1)"]
-
-        %% force NOTE à rester au-dessus d'ATT
-        NOTE --> ATT
     end
 
-    %% liaison entrée PixCell
-    CTX --> ATT
-
     LAT -->|"decode VAE SD3"| OUT["Tuile synthétique 256×256"]
+
 
 ```
 
